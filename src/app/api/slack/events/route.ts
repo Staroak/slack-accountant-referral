@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifySlackRequest, slackClient } from '@/lib/slack';
+import { verifySlackRequest, slackClient, publishAppHome } from '@/lib/slack';
 import { markInvoicePaid } from '@/lib/graph';
 
 export async function POST(request: NextRequest) {
@@ -32,6 +32,9 @@ export async function POST(request: NextRequest) {
       const event = payload.event;
 
       switch (event.type) {
+        case 'app_home_opened':
+          await publishAppHome(event.user);
+          break;
         case 'reaction_added':
           await handleReactionAdded(event);
           break;

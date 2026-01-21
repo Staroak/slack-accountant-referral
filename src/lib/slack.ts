@@ -269,6 +269,60 @@ export async function getSlackUserInfo(userId: string) {
   return result.user;
 }
 
+// Publish the App Home tab for a user
+export async function publishAppHome(userId: string) {
+  return slackClient.views.publish({
+    user_id: userId,
+    view: {
+      type: 'home',
+      blocks: [
+        {
+          type: 'header',
+          text: {
+            type: 'plain_text',
+            text: 'Accountant Referral System',
+            emoji: true,
+          },
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: 'Submit new client referrals to our accounting team. Click the button below to fill out the referral form.',
+          },
+        },
+        {
+          type: 'divider',
+        },
+        {
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: 'New Referral',
+                emoji: true,
+              },
+              style: 'primary',
+              action_id: 'open_referral_modal',
+            },
+          ],
+        },
+        {
+          type: 'context',
+          elements: [
+            {
+              type: 'mrkdwn',
+              text: 'Referrals will be posted to the records channel and added to the calendar if a date is selected.',
+            },
+          ],
+        },
+      ],
+    },
+  });
+}
+
 // Post a referral record to a channel (serves as the data store)
 export async function postReferralRecord(
   channel: string,
