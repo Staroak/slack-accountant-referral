@@ -21,17 +21,18 @@ function getGraphClient(): Client {
 // Get the Graph client instance
 export const graphClient = getGraphClient();
 
-// Get Excel workbook API path using user drive + file path
+// Get Excel workbook API path for SharePoint
 function getExcelApiPath(): string {
-  const driveOwnerEmail = process.env.EXCEL_DRIVE_OWNER_EMAIL;
+  const sharepointHost = process.env.SHAREPOINT_HOST;
+  const siteName = process.env.SHAREPOINT_SITE_NAME;
   const filePath = process.env.EXCEL_FILE_PATH;
   
-  if (!driveOwnerEmail || !filePath) {
-    throw new Error('Missing EXCEL_DRIVE_OWNER_EMAIL or EXCEL_FILE_PATH');
+  if (!sharepointHost || !siteName || !filePath) {
+    throw new Error('Missing SHAREPOINT_HOST, SHAREPOINT_SITE_NAME, or EXCEL_FILE_PATH');
   }
   
-  // Use path-based access: /users/{email}/drive/root:/{path}:
-  return `/users/${driveOwnerEmail}/drive/root:/${encodeURIComponent(filePath)}:`;
+  // SharePoint path: /sites/{host}:/sites/{siteName}:/drive/root:/{filePath}:
+  return `/sites/${sharepointHost}:/sites/${siteName}:/drive/root:/${filePath}:`;
 }
 
 // Create a calendar event on Jarrod's calendar
