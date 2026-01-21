@@ -31,8 +31,11 @@ function getExcelApiPath(): string {
     throw new Error('Missing SHAREPOINT_HOST, SHAREPOINT_SITE_NAME, or EXCEL_FILE_PATH');
   }
   
-  // SharePoint path: /sites/{host}:/sites/{siteName}:/drive/root:/{filePath}:
-  return `/sites/${sharepointHost}:/sites/${siteName}:/drive/root:/${filePath}:`;
+  // Encode each path segment separately (preserve slashes)
+  const encodedPath = filePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
+  
+  // SharePoint path format: /sites/{host}:/sites/{siteName}:/drive/root:/{filePath}
+  return `/sites/${sharepointHost}:/sites/${siteName}:/drive/root:/${encodedPath}`;
 }
 
 // Create a calendar event on Jarrod's calendar
