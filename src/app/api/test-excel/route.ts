@@ -17,99 +17,87 @@ function getGraphClient(): Client {
   return Client.initWithMiddleware({ authProvider });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const testWrite = url.searchParams.get('write') === 'true';
+  
+  const startTime = Date.now();
   const results: Record<string, any> = {
     timestamp: new Date().toISOString(),
     config: {
-      SHAREPOINT_HOST: process.env.SHAREPOINT_HOST || 'NOT SET',
-      SHAREPOINT_SITE_NAME: process.env.SHAREPOINT_SITE_NAME || 'NOT SET',
-      SHAREPOINT_LIBRARY_NAME: process.env.SHAREPOINT_LIBRARY_NAME || 'NOT SET',
-      EXCEL_FILE_PATH: process.env.EXCEL_FILE_PATH || 'NOT SET',
+      SHAREPOINT_DRIVE_ID: process.env.SHAREPOINT_DRIVE_ID ? 'SET' : 'NOT SET',
+      EXCEL_FILE_ID: process.env.EXCEL_FILE_ID ? 'SET' : 'NOT SET',
       EXCEL_WORKSHEET_NAME: process.env.EXCEL_WORKSHEET_NAME || 'NOT SET',
     },
-    steps: {},
+    timings: {},
   };
 
+  const driveId = process.env.SHAREPOINT_DRIVE_ID;
+  const itemId = process.env.EXCEL_FILE_ID;
+  const worksheetName = process.env.EXCEL_WORKSHEET_NAME || 'Sheet1';
+
+  if (!driveId || !itemId) {
+    results.error = 'Missing SHAREPOINT_DRIVE_ID or EXCEL_FILE_ID';
+    return NextResponse.json(results, { status: 500 });
+  }
+
   const client = getGraphClient();
+  const basePath = `/drives/${driveId}/items/${itemId}`;
 
-  // Step 1: Get Site
+  // Test 1: Get worksheets
+  let t1 = Date.now();
   try {
-    const sharepointHost = process.env.SHAREPOINT_HOST;
-    const siteName = process.env.SHAREPOINT_SITE_NAME;
-    const site = await client.api(`/sites/${sharepointHost}:/sites/${siteName}`).get();
-    results.steps.site = { success: true, id: site.id, name: site.displayName };
+    const worksheets = await client.api(`${basePath}/workbook/worksheets`).get();
+    results.timings.getWorksheets = Date.now() - t1;
+    results.worksheets = worksheets.value.map((w: any) => w.name);
   } catch (error: any) {
-    results.steps.site = { success: false, error: error.message };
+    results.timings.getWorksheets = Date.now() - t1;
+    results.worksheetsError = error.message;
     return NextResponse.json(results, { status: 500 });
   }
 
-  // Step 2: Get Drives
+  // Test 2: Get tables
+  let t2 = Date.now();
   try {
-    const drives = await client.api(`/sites/${results.steps.site.id}/drives`).get();
-    results.steps.drives = {
-      success: true,
-      count: drives.value.length,
-      available: drives.value.map((d: any) => ({ name: d.name, id: d.id, webUrl: d.webUrl })),
-    };
+    const tables = await client.api(`${basePath}/workbook/worksheets/${worksheetName}/tables`).get();
+    results.timings.getTables = Date.now() - t2;
+    results.tables = tables.value.map((t: any) => t.name);
   } catch (error: any) {
-    results.steps.drives = { success: false, error: error.message };
+    results.timings.getTables = Date.now() - t2;
+    results.tablesError = error.message;
     return NextResponse.json(results, { status: 500 });
   }
 
-  // Step 3: Find matching drive
-  const libraryName = process.env.SHAREPOINT_LIBRARY_NAME;
-  const drive = results.steps.drives.available.find((d: any) =>
-    d.name === libraryName ||
-    d.name?.toLowerCase() === libraryName?.toLowerCase() ||
-    d.webUrl?.includes(`/${libraryName}/`) ||
-    d.webUrl?.endsWith(`/${libraryName}`)
-  );
-
-  if (!drive) {
-    results.steps.matchedDrive = { success: false, error: `No drive matches "${libraryName}"` };
-    return NextResponse.json(results, { status: 500 });
-  }
-  results.steps.matchedDrive = { success: true, ...drive };
-
-  // Step 4: Get file
-  try {
-    const filePath = process.env.EXCEL_FILE_PATH;
-    const encodedPath = filePath?.split('/').map(segment => encodeURIComponent(segment)).join('/');
-    const item = await client.api(`/drives/${drive.id}/root:/${encodedPath}`).get();
-    results.steps.file = { success: true, id: item.id, name: item.name, webUrl: item.webUrl };
-  } catch (error: any) {
-    results.steps.file = { success: false, error: error.message };
-    return NextResponse.json(results, { status: 500 });
-  }
-
-  // Step 5: Get workbook info
-  try {
-    const worksheetName = process.env.EXCEL_WORKSHEET_NAME;
-    const worksheets = await client.api(`/drives/${drive.id}/items/${results.steps.file.id}/workbook/worksheets`).get();
-    results.steps.worksheets = {
-      success: true,
-      available: worksheets.value.map((w: any) => w.name),
-      targetExists: worksheets.value.some((w: any) => w.name === worksheetName),
-    };
-  } catch (error: any) {
-    results.steps.worksheets = { success: false, error: error.message };
-    return NextResponse.json(results, { status: 500 });
+  // Test 3: Write test row (only if ?write=true)
+  if (testWrite) {
+    let t3 = Date.now();
+    try {
+      const testRow = [[
+        `TEST-${Date.now()}`,
+        'Test Client',
+        'test@example.com',
+        '555-0000',
+        'tax_preparation',
+        'Test note - DELETE THIS ROW',
+        'Test Broker',
+        new Date().toISOString().slice(0, 10),
+        '',
+        'pending',
+        '',
+        'pending',
+      ]];
+      await client
+        .api(`${basePath}/workbook/worksheets/${worksheetName}/tables/ReferralsTable/rows`)
+        .post({ values: testRow });
+      results.timings.writeRow = Date.now() - t3;
+      results.writeSuccess = true;
+    } catch (error: any) {
+      results.timings.writeRow = Date.now() - t3;
+      results.writeError = error.message;
+    }
   }
 
-  // Step 6: Check table
-  try {
-    const worksheetName = process.env.EXCEL_WORKSHEET_NAME;
-    const tables = await client.api(`/drives/${drive.id}/items/${results.steps.file.id}/workbook/worksheets/${worksheetName}/tables`).get();
-    results.steps.tables = {
-      success: true,
-      available: tables.value.map((t: any) => t.name),
-      referralsTableExists: tables.value.some((t: any) => t.name === 'ReferralsTable'),
-    };
-  } catch (error: any) {
-    results.steps.tables = { success: false, error: error.message };
-    return NextResponse.json(results, { status: 500 });
-  }
-
-  results.allPassed = true;
+  results.timings.total = Date.now() - startTime;
+  results.success = true;
   return NextResponse.json(results);
 }
