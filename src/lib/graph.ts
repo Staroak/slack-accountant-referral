@@ -63,8 +63,14 @@ export async function createCalendarEvent(eventData: CalendarEventData): Promise
 // Append a new row to the Excel referrals spreadsheet
 export async function appendExcelRow(rowData: ExcelReferralRow): Promise<void> {
   const client = getGraphClient();
+  const driveOwnerEmail = process.env.EXCEL_DRIVE_OWNER_EMAIL;
   const fileId = process.env.EXCEL_FILE_ID;
   const worksheetName = process.env.EXCEL_WORKSHEET_NAME || 'Referrals';
+
+  if (!driveOwnerEmail || !fileId) {
+    console.error('Missing EXCEL_DRIVE_OWNER_EMAIL or EXCEL_FILE_ID environment variables');
+    throw new Error('Excel configuration missing');
+  }
 
   // Convert row data to array format
   const values = [[
@@ -82,9 +88,14 @@ export async function appendExcelRow(rowData: ExcelReferralRow): Promise<void> {
     rowData.invoiceStatus,
   ]];
 
-  await client
-    .api(`/me/drive/items/${fileId}/workbook/worksheets/${worksheetName}/tables/ReferralsTable/rows`)
-    .post({ values });
+  try {
+    await client
+      .api(`/users/${driveOwnerEmail}/drive/items/${fileId}/workbook/worksheets/${worksheetName}/tables/ReferralsTable/rows`)
+      .post({ values });
+  } catch (error: any) {
+    console.error('Excel append error:', error?.message || error);
+    throw error;
+  }
 }
 
 // Update a specific cell in the Excel spreadsheet
@@ -94,6 +105,7 @@ export async function updateExcelCell(
   value: string
 ): Promise<void> {
   const client = getGraphClient();
+  const driveOwnerEmail = process.env.EXCEL_DRIVE_OWNER_EMAIL;
   const fileId = process.env.EXCEL_FILE_ID;
   const worksheetName = process.env.EXCEL_WORKSHEET_NAME || 'Referrals';
 
@@ -101,19 +113,20 @@ export async function updateExcelCell(
   const cellAddress = `${columnLetter}${rowIndex + 2}`;
 
   await client
-    .api(`/me/drive/items/${fileId}/workbook/worksheets/${worksheetName}/range(address='${cellAddress}')`)
+    .api(`/users/${driveOwnerEmail}/drive/items/${fileId}/workbook/worksheets/${worksheetName}/range(address='${cellAddress}')`)
     .patch({ values: [[value]] });
 }
 
 // Find a row by referral ID
 export async function findRowByReferralId(referralId: string): Promise<number | null> {
   const client = getGraphClient();
+  const driveOwnerEmail = process.env.EXCEL_DRIVE_OWNER_EMAIL;
   const fileId = process.env.EXCEL_FILE_ID;
   const worksheetName = process.env.EXCEL_WORKSHEET_NAME || 'Referrals';
 
   // Get the ID column (column A)
   const result = await client
-    .api(`/me/drive/items/${fileId}/workbook/worksheets/${worksheetName}/range(address='A:A')`)
+    .api(`/users/${driveOwnerEmail}/drive/items/${fileId}/workbook/worksheets/${worksheetName}/range(address='A:A')`)
     .get();
 
   const values = result.values as string[][];

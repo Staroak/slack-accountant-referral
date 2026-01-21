@@ -73,77 +73,103 @@ async function handleViewSubmission(payload: any) {
 }
 
 async function handleReferralSubmission(payload: any) {
-  const values = payload.view.state.values;
-  const userId = payload.user.id;
+  try {
+    const values = payload.view.state.values;
+    const userId = payload.user.id;
 
-  // Get user info for broker name
-  const userInfo = await getSlackUserInfo(userId);
-  const brokerName = userInfo?.real_name || userInfo?.name || 'Unknown';
+    // Get user info for broker name
+    const userInfo = await getSlackUserInfo(userId);
+    const brokerName = userInfo?.real_name || userInfo?.name || 'Unknown';
 
-  // Extract form values
-  const formData: ReferralFormData = {
-    clientName: values.client_name_block.client_name.value,
-    clientEmail: values.client_email_block.client_email.value,
-    clientPhone: values.client_phone_block.client_phone.value,
-    serviceType: values.service_type_block.service_type.selected_option.value,
-    notes: values.notes_block?.notes?.value || '',
-    brokerUserId: userId,
-    brokerName,
-    appointmentDate: values.appointment_date_block?.appointment_date?.selected_date,
-    appointmentTime: values.appointment_time_block?.appointment_time?.selected_time,
-  };
+    // Extract form values
+    const formData: ReferralFormData = {
+      clientName: values.client_name_block.client_name.value,
+      clientEmail: values.client_email_block.client_email.value,
+      clientPhone: values.client_phone_block.client_phone.value,
+      serviceType: values.service_type_block.service_type.selected_option.value,
+      notes: values.notes_block?.notes?.value || '',
+      brokerUserId: userId,
+      brokerName,
+      appointmentDate: values.appointment_date_block?.appointment_date?.selected_date,
+      appointmentTime: values.appointment_time_block?.appointment_time?.selected_time,
+    };
 
-  // Generate unique referral ID
-  const referralId = `REF-${uuidv4().slice(0, 8).toUpperCase()}`;
+    // Generate unique referral ID
+    const referralId = `REF-${uuidv4().slice(0, 8).toUpperCase()}`;
 
-  // Create calendar event if date/time provided
-  let appointmentDateTime: string | null = null;
-  if (formData.appointmentDate && formData.appointmentTime) {
-    const startDateTime = `${formData.appointmentDate}T${formData.appointmentTime}:00`;
-    const endDate = new Date(`${formData.appointmentDate}T${formData.appointmentTime}`);
-    endDate.setHours(endDate.getHours() + 1);
-    const endDateTime = endDate.toISOString().slice(0, 19);
+    // Create calendar event if date/time provided
+    let appointmentDateTime: string | null = null;
+    if (formData.appointmentDate && formData.appointmentTime) {
+      try {
+        const startDateTime = `${formData.appointmentDate}T${formData.appointmentTime}:00`;
+        const endDate = new Date(`${formData.appointmentDate}T${formData.appointmentTime}`);
+        endDate.setHours(endDate.getHours() + 1);
+        const endDateTime = endDate.toISOString().slice(0, 19);
 
-    await createCalendarEvent({
-      subject: `Accountant Appointment: ${formData.clientName}`,
-      startDateTime,
-      endDateTime,
-      attendeeEmail: formData.clientEmail,
-      body: `
-        <h2>Accountant Referral Appointment</h2>
-        <p><strong>Client:</strong> ${formData.clientName}</p>
-        <p><strong>Email:</strong> ${formData.clientEmail}</p>
-        <p><strong>Phone:</strong> ${formData.clientPhone}</p>
-        <p><strong>Service:</strong> ${formData.serviceType.replace('_', ' ')}</p>
-        <p><strong>Notes:</strong> ${formData.notes || 'None'}</p>
-        <p><strong>Referred by:</strong> ${brokerName}</p>
-        <p><strong>Referral ID:</strong> ${referralId}</p>
-      `,
+        await createCalendarEvent({
+          subject: `Accountant Appointment: ${formData.clientName}`,
+          startDateTime,
+          endDateTime,
+          attendeeEmail: formData.clientEmail,
+          body: `
+            <h2>Accountant Referral Appointment</h2>
+            <p><strong>Client:</strong> ${formData.clientName}</p>
+            <p><strong>Email:</strong> ${formData.clientEmail}</p>
+            <p><strong>Phone:</strong> ${formData.clientPhone}</p>
+            <p><strong>Service:</strong> ${formData.serviceType.replace('_', ' ')}</p>
+            <p><strong>Notes:</strong> ${formData.notes || 'None'}</p>
+            <p><strong>Referred by:</strong> ${brokerName}</p>
+            <p><strong>Referral ID:</strong> ${referralId}</p>
+          `,
+        });
+
+        appointmentDateTime = startDateTime;
+      } catch (calendarError) {
+        console.error('Calendar event creation failed:', calendarError);
+        // Continue without calendar event - don't fail the whole submission
+      }
+    }
+
+    // Add to Excel spreadsheet
+    const excelRow: ExcelReferralRow = {
+      id: referralId,
+      clientName: formData.clientName,
+      clientEmail: formData.clientEmail,
+      clientPhone: formData.clientPhone,
+      serviceType: formData.serviceType,
+      notes: formData.notes,
+      brokerName: formData.brokerName,
+      referralDate: new Date().toISOString().slice(0, 10),
+      appointmentDate: appointmentDateTime,
+      status: appointmentDateTime ? 'scheduled' : 'pending',
+      completedDate: null,
+      invoiceStatus: 'pending',
+    };
+
+    try {
+      await appendExcelRow(excelRow);
+    } catch (excelError: any) {
+      console.error('Excel append failed:', excelError);
+      // Return error to user in modal
+      return NextResponse.json({
+        response_action: 'errors',
+        errors: {
+          client_name_block: `Failed to save referral: ${excelError?.message || 'Excel error'}. Contact admin.`,
+        },
+      });
+    }
+
+    // Return empty response to close modal
+    return NextResponse.json({});
+  } catch (error: any) {
+    console.error('Referral submission error:', error);
+    return NextResponse.json({
+      response_action: 'errors',
+      errors: {
+        client_name_block: `Submission failed: ${error?.message || 'Unknown error'}. Please try again.`,
+      },
     });
-
-    appointmentDateTime = startDateTime;
   }
-
-  // Add to Excel spreadsheet
-  const excelRow: ExcelReferralRow = {
-    id: referralId,
-    clientName: formData.clientName,
-    clientEmail: formData.clientEmail,
-    clientPhone: formData.clientPhone,
-    serviceType: formData.serviceType,
-    notes: formData.notes,
-    brokerName: formData.brokerName,
-    referralDate: new Date().toISOString().slice(0, 10),
-    appointmentDate: appointmentDateTime,
-    status: appointmentDateTime ? 'scheduled' : 'pending',
-    completedDate: null,
-    invoiceStatus: 'pending',
-  };
-
-  await appendExcelRow(excelRow);
-
-  // Return empty response to close modal
-  return NextResponse.json({});
 }
 
 async function handleCompletionSubmission(payload: any) {
