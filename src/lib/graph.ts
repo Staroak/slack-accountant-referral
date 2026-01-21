@@ -21,24 +21,17 @@ function getGraphClient(): Client {
 // Get the Graph client instance
 export const graphClient = getGraphClient();
 
-// Encode sharing URL for Graph API access
-function encodeSharingUrl(sharingUrl: string): string {
-  const base64 = Buffer.from(sharingUrl).toString('base64');
-  // Convert to base64url format and add prefix
-  return 'u!' + base64.replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
-}
-
-// Get Excel workbook API path from sharing URL
+// Get Excel workbook API path using user drive + file path
 function getExcelApiPath(): string {
-  const sharingUrl = process.env.EXCEL_SHARING_URL;
-  if (sharingUrl) {
-    const encoded = encodeSharingUrl(sharingUrl);
-    return `/shares/${encoded}/driveItem`;
-  }
-  // Fallback to user drive path
   const driveOwnerEmail = process.env.EXCEL_DRIVE_OWNER_EMAIL;
-  const fileId = process.env.EXCEL_FILE_ID;
-  return `/users/${driveOwnerEmail}/drive/items/${fileId}`;
+  const filePath = process.env.EXCEL_FILE_PATH;
+  
+  if (!driveOwnerEmail || !filePath) {
+    throw new Error('Missing EXCEL_DRIVE_OWNER_EMAIL or EXCEL_FILE_PATH');
+  }
+  
+  // Use path-based access: /users/{email}/drive/root:/{path}:
+  return `/users/${driveOwnerEmail}/drive/root:/${encodeURIComponent(filePath)}:`;
 }
 
 // Create a calendar event on Jarrod's calendar
