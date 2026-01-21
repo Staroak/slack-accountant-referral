@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySlackRequest, openReferralModal, getSlackUserInfo, postCompletionNotification, postReferralRecord } from '@/lib/slack';
 import { createCalendarEvent } from '@/lib/graph';
+import { sendToZapier } from '@/lib/zapier';
 import type { ReferralFormData } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -159,6 +160,14 @@ async function handleReferralSubmission(payload: any) {
           client_name_block: `Failed to save referral: ${slackError?.message || 'Slack error'}. Contact admin.`,
         },
       });
+    }
+
+    // Send to Zapier → Excel (non-blocking, don't fail if Zapier fails)
+    try {
+      await sendToZapier(referralRecord);
+    } catch (zapierError) {
+      console.error('Zapier webhook failed (non-critical):', zapierError);
+      // Don't fail the submission - Slack record is the source of truth
     }
 
     // Return empty response to close modal
