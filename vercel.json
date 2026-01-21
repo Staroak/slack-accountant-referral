@@ -1,20 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "regions": ["sfo1"],
-  "env": {
-    "SLACK_BOT_TOKEN": "@slack-bot-token",
-    "SLACK_SIGNING_SECRET": "@slack-signing-secret",
-    "SLACK_APP_ID": "@slack-app-id",
-    "AZURE_AD_CLIENT_ID": "@azure-ad-client-id",
-    "AZURE_AD_CLIENT_SECRET": "@azure-ad-client-secret",
-    "AZURE_AD_TENANT_ID": "@azure-ad-tenant-id",
-    "NEXTAUTH_SECRET": "@nextauth-secret",
-    "EXCEL_FILE_ID": "@excel-file-id",
-    "EXCEL_WORKSHEET_NAME": "Referrals",
-    "JARROD_CALENDAR_EMAIL": "@jarrod-calendar-email",
-    "CHANNEL_ACCOUNTANT_REFERRAL": "@channel-accountant-referral",
-    "CHANNEL_ACCOUNTING_SERVICES_COMPLETED": "@channel-accounting-services-completed",
-    "CHANNEL_ACCOUNTING_ADMIN": "@channel-accounting-admin"
-  }
+  "regions": ["sfo1"]
 }
