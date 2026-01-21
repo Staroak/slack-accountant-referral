@@ -21,9 +21,10 @@ function getGraphClient(): Client {
 // Get the Graph client instance
 export const graphClient = getGraphClient();
 
-// Cache for site and drive item IDs
-let cachedDriveItemId: string | null = null;
+// Cache for IDs
 let cachedSiteId: string | null = null;
+let cachedDriveId: string | null = null;
+let cachedDriveItemId: string | null = null;
 
 // Get the SharePoint site ID
 async function getSiteId(): Promise<string> {
@@ -33,10 +34,33 @@ async function getSiteId(): Promise<string> {
   const sharepointHost = process.env.SHAREPOINT_HOST;
   const siteName = process.env.SHAREPOINT_SITE_NAME;
   
-  // Get site by path
   const site = await client.api(`/sites/${sharepointHost}:/sites/${siteName}`).get();
   cachedSiteId = site.id;
   return site.id;
+}
+
+// Get the document library (drive) ID by name
+async function getDriveId(): Promise<string> {
+  if (cachedDriveId) return cachedDriveId;
+  
+  const client = getGraphClient();
+  const siteId = await getSiteId();
+  const libraryName = process.env.SHAREPOINT_LIBRARY_NAME;
+  
+  if (!libraryName) {
+    throw new Error('Missing SHAREPOINT_LIBRARY_NAME');
+  }
+  
+  // Get all drives in the site and find the one matching our library name
+  const drives = await client.api(`/sites/${siteId}/drives`).get();
+  const drive = drives.value.find((d: any) => d.name === libraryName);
+  
+  if (!drive) {
+    throw new Error(`Document library "${libraryName}" not found in site`);
+  }
+  
+  cachedDriveId = drive.id;
+  return drive.id;
 }
 
 // Get the Excel file's drive item ID
@@ -44,7 +68,7 @@ async function getDriveItemId(): Promise<string> {
   if (cachedDriveItemId) return cachedDriveItemId;
   
   const client = getGraphClient();
-  const siteId = await getSiteId();
+  const driveId = await getDriveId();
   const filePath = process.env.EXCEL_FILE_PATH;
   
   if (!filePath) {
@@ -54,17 +78,17 @@ async function getDriveItemId(): Promise<string> {
   // Encode each path segment separately (preserve slashes)
   const encodedPath = filePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
   
-  // Get drive item by path within the site's default drive
-  const item = await client.api(`/sites/${siteId}/drive/root:/${encodedPath}`).get();
+  // Get drive item by path within the document library
+  const item = await client.api(`/drives/${driveId}/root:/${encodedPath}`).get();
   cachedDriveItemId = item.id;
   return item.id;
 }
 
 // Get Excel workbook API base path
 async function getExcelApiPath(): Promise<string> {
-  const siteId = await getSiteId();
+  const driveId = await getDriveId();
   const itemId = await getDriveItemId();
-  return `/sites/${siteId}/drive/items/${itemId}`;
+  return `/drives/${driveId}/items/${itemId}`;
 }
 
 // Create a calendar event on Jarrod's calendar
