@@ -172,3 +172,55 @@ export async function updateReferralStatus(
 export async function markInvoicePaid(referralId: string): Promise<void> {
   await updateReferralStatus(referralId, 'paid', { invoiceStatus: 'paid' });
 }
+
+// Send referral data to Power Automate webhook (fast, fire-and-forget)
+export async function sendToExcelWebhook(rowData: ExcelReferralRow): Promise<void> {
+  const webhookUrl = process.env.POWERAUTOMATE_WEBHOOK_URL;
+  
+  if (!webhookUrl) {
+    throw new Error('Missing POWERAUTOMATE_WEBHOOK_URL environment variable');
+  }
+
+  // Fire-and-forget POST to Power Automate
+  // We don't await the full response - just confirm it was accepted
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
+
+  try {
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        id: rowData.id,
+        clientName: rowData.clientName,
+        clientEmail: rowData.clientEmail,
+        clientPhone: rowData.clientPhone,
+        serviceType: rowData.serviceType,
+        notes: rowData.notes || '',
+        brokerName: rowData.brokerName,
+        referralDate: rowData.referralDate,
+        appointmentDate: rowData.appointmentDate || '',
+        status: rowData.status,
+        completedDate: rowData.completedDate || '',
+        invoiceStatus: rowData.invoiceStatus,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok && response.status !== 202) {
+      throw new Error(`Webhook failed: ${response.status}`);
+    }
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      // Request was sent but we timed out waiting for response - that's OK
+      console.log('Webhook request sent (response timeout - continuing)');
+      return;
+    }
+    throw error;
+  }
+}

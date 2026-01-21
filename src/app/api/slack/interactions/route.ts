@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifySlackRequest, openReferralModal, getSlackUserInfo, postCompletionNotification } from '@/lib/slack';
-import { createCalendarEvent, appendExcelRow } from '@/lib/graph';
-import type { ReferralFormData, ExcelReferralRow } from '@/types';
+import { verifySlackRequest, openReferralModal, getSlackUserInfo, postCompletionNotification, postReferralRecord } from '@/lib/slack';
+import { createCalendarEvent } from '@/lib/graph';
+import type { ReferralFormData } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
 export async function POST(request: NextRequest) {
@@ -130,8 +130,8 @@ async function handleReferralSubmission(payload: any) {
       }
     }
 
-    // Add to Excel spreadsheet
-    const excelRow: ExcelReferralRow = {
+    // Post referral record to Slack channel (serves as data store)
+    const referralRecord = {
       id: referralId,
       clientName: formData.clientName,
       clientEmail: formData.clientEmail,
@@ -142,19 +142,21 @@ async function handleReferralSubmission(payload: any) {
       referralDate: new Date().toISOString().slice(0, 10),
       appointmentDate: appointmentDateTime,
       status: appointmentDateTime ? 'scheduled' : 'pending',
-      completedDate: null,
-      invoiceStatus: 'pending',
     };
 
     try {
-      await appendExcelRow(excelRow);
-    } catch (excelError: any) {
-      console.error('Excel append failed:', excelError);
+      const recordsChannel = process.env.CHANNEL_REFERRAL_RECORDS || process.env.CHANNEL_ACCOUNTANT_REFERRAL;
+      if (!recordsChannel) {
+        throw new Error('No channel configured for referral records');
+      }
+      await postReferralRecord(recordsChannel, referralRecord);
+    } catch (slackError: any) {
+      console.error('Failed to post referral record:', slackError);
       // Return error to user in modal
       return NextResponse.json({
         response_action: 'errors',
         errors: {
-          client_name_block: `Failed to save referral: ${excelError?.message || 'Excel error'}. Contact admin.`,
+          client_name_block: `Failed to save referral: ${slackError?.message || 'Slack error'}. Contact admin.`,
         },
       });
     }

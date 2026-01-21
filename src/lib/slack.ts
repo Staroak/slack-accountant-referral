@@ -268,3 +268,82 @@ export async function getSlackUserInfo(userId: string) {
   const result = await slackClient.users.info({ user: userId });
   return result.user;
 }
+
+// Post a referral record to a channel (serves as the data store)
+export async function postReferralRecord(
+  channel: string,
+  referralData: {
+    id: string;
+    clientName: string;
+    clientEmail: string;
+    clientPhone: string;
+    serviceType: string;
+    notes: string;
+    brokerName: string;
+    referralDate: string;
+    appointmentDate?: string | null;
+    status: string;
+  }
+) {
+  const serviceTypeDisplay = referralData.serviceType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  
+  return slackClient.chat.postMessage({
+    channel,
+    text: `New Referral: ${referralData.clientName}`,
+    blocks: [
+      {
+        type: 'header',
+        text: {
+          type: 'plain_text',
+          text: `📋 New Referral: ${referralData.id}`,
+          emoji: true,
+        },
+      },
+      {
+        type: 'section',
+        fields: [
+          { type: 'mrkdwn', text: `*Client Name:*\n${referralData.clientName}` },
+          { type: 'mrkdwn', text: `*Service Type:*\n${serviceTypeDisplay}` },
+          { type: 'mrkdwn', text: `*Email:*\n${referralData.clientEmail}` },
+          { type: 'mrkdwn', text: `*Phone:*\n${referralData.clientPhone}` },
+          { type: 'mrkdwn', text: `*Referred By:*\n${referralData.brokerName}` },
+          { type: 'mrkdwn', text: `*Date:*\n${referralData.referralDate}` },
+        ],
+      },
+      ...(referralData.appointmentDate ? [{
+        type: 'section' as const,
+        text: {
+          type: 'mrkdwn' as const,
+          text: `*📅 Appointment:* ${referralData.appointmentDate}`,
+        },
+      }] : []),
+      ...(referralData.notes ? [{
+        type: 'section' as const,
+        text: {
+          type: 'mrkdwn' as const,
+          text: `*Notes:*\n${referralData.notes}`,
+        },
+      }] : []),
+      {
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text: `Status: *${referralData.status}* | ID: ${referralData.id}`,
+          },
+        ],
+      },
+      {
+        type: 'divider',
+      },
+    ],
+    metadata: {
+      event_type: 'referral_record',
+      event_payload: {
+        referral_id: referralData.id,
+        client_name: referralData.clientName,
+        status: referralData.status,
+      },
+    },
+  });
+}
