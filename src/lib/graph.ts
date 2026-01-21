@@ -21,6 +21,26 @@ function getGraphClient(): Client {
 // Get the Graph client instance
 export const graphClient = getGraphClient();
 
+// Encode sharing URL for Graph API access
+function encodeSharingUrl(sharingUrl: string): string {
+  const base64 = Buffer.from(sharingUrl).toString('base64');
+  // Convert to base64url format and add prefix
+  return 'u!' + base64.replace(/=/g, '').replace(/\//g, '_').replace(/\+/g, '-');
+}
+
+// Get Excel workbook API path from sharing URL
+function getExcelApiPath(): string {
+  const sharingUrl = process.env.EXCEL_SHARING_URL;
+  if (sharingUrl) {
+    const encoded = encodeSharingUrl(sharingUrl);
+    return `/shares/${encoded}/driveItem`;
+  }
+  // Fallback to user drive path
+  const driveOwnerEmail = process.env.EXCEL_DRIVE_OWNER_EMAIL;
+  const fileId = process.env.EXCEL_FILE_ID;
+  return `/users/${driveOwnerEmail}/drive/items/${fileId}`;
+}
+
 // Create a calendar event on Jarrod's calendar
 export async function createCalendarEvent(eventData: CalendarEventData): Promise<string> {
   const client = getGraphClient();
@@ -63,14 +83,8 @@ export async function createCalendarEvent(eventData: CalendarEventData): Promise
 // Append a new row to the Excel referrals spreadsheet
 export async function appendExcelRow(rowData: ExcelReferralRow): Promise<void> {
   const client = getGraphClient();
-  const driveOwnerEmail = process.env.EXCEL_DRIVE_OWNER_EMAIL;
-  const fileId = process.env.EXCEL_FILE_ID;
   const worksheetName = process.env.EXCEL_WORKSHEET_NAME || 'Referrals';
-
-  if (!driveOwnerEmail || !fileId) {
-    console.error('Missing EXCEL_DRIVE_OWNER_EMAIL or EXCEL_FILE_ID environment variables');
-    throw new Error('Excel configuration missing');
-  }
+  const basePath = getExcelApiPath();
 
   // Convert row data to array format
   const values = [[
@@ -90,7 +104,7 @@ export async function appendExcelRow(rowData: ExcelReferralRow): Promise<void> {
 
   try {
     await client
-      .api(`/users/${driveOwnerEmail}/drive/items/${fileId}/workbook/worksheets/${worksheetName}/tables/ReferralsTable/rows`)
+      .api(`${basePath}/workbook/worksheets/${worksheetName}/tables/ReferralsTable/rows`)
       .post({ values });
   } catch (error: any) {
     console.error('Excel append error:', error?.message || error);
@@ -105,28 +119,26 @@ export async function updateExcelCell(
   value: string
 ): Promise<void> {
   const client = getGraphClient();
-  const driveOwnerEmail = process.env.EXCEL_DRIVE_OWNER_EMAIL;
-  const fileId = process.env.EXCEL_FILE_ID;
   const worksheetName = process.env.EXCEL_WORKSHEET_NAME || 'Referrals';
+  const basePath = getExcelApiPath();
 
   // Row index is 1-based, add 2 to account for header row
   const cellAddress = `${columnLetter}${rowIndex + 2}`;
 
   await client
-    .api(`/users/${driveOwnerEmail}/drive/items/${fileId}/workbook/worksheets/${worksheetName}/range(address='${cellAddress}')`)
+    .api(`${basePath}/workbook/worksheets/${worksheetName}/range(address='${cellAddress}')`)
     .patch({ values: [[value]] });
 }
 
 // Find a row by referral ID
 export async function findRowByReferralId(referralId: string): Promise<number | null> {
   const client = getGraphClient();
-  const driveOwnerEmail = process.env.EXCEL_DRIVE_OWNER_EMAIL;
-  const fileId = process.env.EXCEL_FILE_ID;
   const worksheetName = process.env.EXCEL_WORKSHEET_NAME || 'Referrals';
+  const basePath = getExcelApiPath();
 
   // Get the ID column (column A)
   const result = await client
-    .api(`/users/${driveOwnerEmail}/drive/items/${fileId}/workbook/worksheets/${worksheetName}/range(address='A:A')`)
+    .api(`${basePath}/workbook/worksheets/${worksheetName}/range(address='A:A')`)
     .get();
 
   const values = result.values as string[][];
