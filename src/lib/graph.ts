@@ -53,10 +53,18 @@ async function getDriveId(): Promise<string> {
   
   // Get all drives in the site and find the one matching our library name
   const drives = await client.api(`/sites/${siteId}/drives`).get();
-  const drive = drives.value.find((d: any) => d.name === libraryName);
+  
+  // Try to match by name or by webUrl containing the library name
+  const drive = drives.value.find((d: any) => 
+    d.name === libraryName || 
+    d.name?.toLowerCase() === libraryName.toLowerCase() ||
+    d.webUrl?.includes(`/${libraryName}/`) ||
+    d.webUrl?.endsWith(`/${libraryName}`)
+  );
   
   if (!drive) {
-    throw new Error(`Document library "${libraryName}" not found in site`);
+    const availableDrives = drives.value.map((d: any) => d.name).join(', ');
+    throw new Error(`Document library "${libraryName}" not found. Available: ${availableDrives}`);
   }
   
   cachedDriveId = drive.id;
