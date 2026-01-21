@@ -21,21 +21,50 @@ function getGraphClient(): Client {
 // Get the Graph client instance
 export const graphClient = getGraphClient();
 
-// Get Excel workbook API path for SharePoint
-function getExcelApiPath(): string {
+// Cache for site and drive item IDs
+let cachedDriveItemId: string | null = null;
+let cachedSiteId: string | null = null;
+
+// Get the SharePoint site ID
+async function getSiteId(): Promise<string> {
+  if (cachedSiteId) return cachedSiteId;
+  
+  const client = getGraphClient();
   const sharepointHost = process.env.SHAREPOINT_HOST;
   const siteName = process.env.SHAREPOINT_SITE_NAME;
+  
+  // Get site by path
+  const site = await client.api(`/sites/${sharepointHost}:/sites/${siteName}`).get();
+  cachedSiteId = site.id;
+  return site.id;
+}
+
+// Get the Excel file's drive item ID
+async function getDriveItemId(): Promise<string> {
+  if (cachedDriveItemId) return cachedDriveItemId;
+  
+  const client = getGraphClient();
+  const siteId = await getSiteId();
   const filePath = process.env.EXCEL_FILE_PATH;
   
-  if (!sharepointHost || !siteName || !filePath) {
-    throw new Error('Missing SHAREPOINT_HOST, SHAREPOINT_SITE_NAME, or EXCEL_FILE_PATH');
+  if (!filePath) {
+    throw new Error('Missing EXCEL_FILE_PATH');
   }
   
   // Encode each path segment separately (preserve slashes)
   const encodedPath = filePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
   
-  // SharePoint path format: /sites/{host}:/sites/{siteName}:/drive/root:/{filePath}
-  return `/sites/${sharepointHost}:/sites/${siteName}:/drive/root:/${encodedPath}`;
+  // Get drive item by path within the site's default drive
+  const item = await client.api(`/sites/${siteId}/drive/root:/${encodedPath}`).get();
+  cachedDriveItemId = item.id;
+  return item.id;
+}
+
+// Get Excel workbook API base path
+async function getExcelApiPath(): Promise<string> {
+  const siteId = await getSiteId();
+  const itemId = await getDriveItemId();
+  return `/sites/${siteId}/drive/items/${itemId}`;
 }
 
 // Create a calendar event on Jarrod's calendar
@@ -81,7 +110,7 @@ export async function createCalendarEvent(eventData: CalendarEventData): Promise
 export async function appendExcelRow(rowData: ExcelReferralRow): Promise<void> {
   const client = getGraphClient();
   const worksheetName = process.env.EXCEL_WORKSHEET_NAME || 'Referrals';
-  const basePath = getExcelApiPath();
+  const basePath = await getExcelApiPath();
 
   // Convert row data to array format
   const values = [[
@@ -117,7 +146,7 @@ export async function updateExcelCell(
 ): Promise<void> {
   const client = getGraphClient();
   const worksheetName = process.env.EXCEL_WORKSHEET_NAME || 'Referrals';
-  const basePath = getExcelApiPath();
+  const basePath = await getExcelApiPath();
 
   // Row index is 1-based, add 2 to account for header row
   const cellAddress = `${columnLetter}${rowIndex + 2}`;
@@ -131,7 +160,7 @@ export async function updateExcelCell(
 export async function findRowByReferralId(referralId: string): Promise<number | null> {
   const client = getGraphClient();
   const worksheetName = process.env.EXCEL_WORKSHEET_NAME || 'Referrals';
-  const basePath = getExcelApiPath();
+  const basePath = await getExcelApiPath();
 
   // Get the ID column (column A)
   const result = await client
