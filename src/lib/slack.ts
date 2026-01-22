@@ -486,17 +486,32 @@ export async function fetchRecentReferrals(limit: number = 50): Promise<{ id: st
     const referrals: { id: string; clientName: string; serviceType: string }[] = [];
 
     for (const message of result.messages || []) {
+      // Try metadata first (new format)
       const metadata = message.metadata as any;
       if (metadata?.event_type === 'referral_record') {
         const payload = metadata.event_payload;
-        // Only include pending/scheduled referrals (not completed/paid)
-        if (payload?.referral_id && payload?.client_name && payload?.status !== 'completed' && payload?.status !== 'paid') {
+        if (payload?.referral_id && payload?.client_name) {
           referrals.push({
             id: payload.referral_id,
             clientName: payload.client_name,
             serviceType: payload.service_type || 'Unknown',
           });
         }
+        continue;
+      }
+
+      // Fallback: parse from message text (old format)
+      // Look for patterns like "REF-XXXXXXXX" and "Client: Name"
+      const text = message.text || '';
+      const refMatch = text.match(/\b(REF-[A-Z0-9]{8})\b/);
+      const clientMatch = text.match(/\*Client:\*\s*([^\n*]+)/i) || text.match(/Client:\s*([^\n]+)/i);
+
+      if (refMatch && clientMatch) {
+        referrals.push({
+          id: refMatch[1],
+          clientName: clientMatch[1].trim(),
+          serviceType: 'Unknown',
+        });
       }
     }
 
