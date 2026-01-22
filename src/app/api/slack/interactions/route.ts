@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifySlackRequest, openReferralModal, getSlackUserInfo, postCompletionNotification, postReferralRecord } from '@/lib/slack';
-import { createCalendarEvent } from '@/lib/graph';
-import { sendToZapier } from '@/lib/zapier';
+import { verifySlackRequest, openReferralModal, openCompletionModal, getSlackUserInfo, postCompletionNotification, postReferralRecord, fetchRecentReferrals } from '@/lib/slack';
+import { createCalendarEvent, getCalendarAvailability } from '@/lib/graph';
+import { sendToZapier, sendCompletionToZapier } from '@/lib/zapier';
 import type { ReferralFormData } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -47,12 +47,26 @@ async function handleBlockActions(payload: any) {
 
   switch (action.action_id) {
     case 'open_referral_modal':
-      // Open the referral form modal
-      await openReferralModal(payload.trigger_id);
+      // Fetch Jared's calendar availability from Outlook
+      let availableSlots: { date: string; startTime: string; endTime: string; display: string }[] = [];
+      try {
+        availableSlots = await getCalendarAvailability(7);
+      } catch (error) {
+        console.error('Failed to fetch calendar availability:', error);
+      }
+      // Open the referral form modal with availability
+      await openReferralModal(payload.trigger_id, availableSlots);
       return NextResponse.json({});
 
     case 'open_completion_modal':
-      // TODO: Open service completion modal
+      // Fetch recent referrals for the dropdown
+      let referrals: { id: string; clientName: string; serviceType: string }[] = [];
+      try {
+        referrals = await fetchRecentReferrals();
+      } catch (error) {
+        console.error('Failed to fetch referrals:', error);
+      }
+      await openCompletionModal(payload.trigger_id, referrals);
       return NextResponse.json({});
 
     default:
@@ -83,6 +97,17 @@ async function handleReferralSubmission(payload: any) {
     const brokerName = userInfo?.real_name || userInfo?.name || 'Unknown';
 
     // Extract form values
+    // Parse appointment slot (format: "YYYY-MM-DD|HH:mm" or "none")
+    const appointmentSlot = values.appointment_slot_block?.appointment_slot?.selected_option?.value;
+    let appointmentDate: string | undefined;
+    let appointmentTime: string | undefined;
+
+    if (appointmentSlot && appointmentSlot !== 'none') {
+      const [date, time] = appointmentSlot.split('|');
+      appointmentDate = date;
+      appointmentTime = time;
+    }
+
     const formData: ReferralFormData = {
       clientName: values.client_name_block.client_name.value,
       clientEmail: values.client_email_block.client_email.value,
@@ -91,8 +116,8 @@ async function handleReferralSubmission(payload: any) {
       notes: values.notes_block?.notes?.value || '',
       brokerUserId: userId,
       brokerName,
-      appointmentDate: values.appointment_date_block?.appointment_date?.selected_date,
-      appointmentTime: values.appointment_time_block?.appointment_time?.selected_time,
+      appointmentDate,
+      appointmentTime,
     };
 
     // Generate unique referral ID
@@ -146,7 +171,7 @@ async function handleReferralSubmission(payload: any) {
     };
 
     try {
-      const recordsChannel = process.env.CHANNEL_REFERRAL_RECORDS || process.env.CHANNEL_ACCOUNTANT_REFERRAL;
+      const recordsChannel = process.env.CHANNEL_ACCOUNTANT_REFERRAL;
       if (!recordsChannel) {
         throw new Error('No channel configured for referral records');
       }
@@ -184,7 +209,71 @@ async function handleReferralSubmission(payload: any) {
 }
 
 async function handleCompletionSubmission(payload: any) {
-  // TODO: Handle service completion form submission
-  // This will update Excel and post to #accounting-admin
-  return NextResponse.json({});
+  try {
+    const values = payload.view.state.values;
+    const userId = payload.user.id;
+
+    // Get user info for Jr Accountant name
+    const userInfo = await getSlackUserInfo(userId);
+    const completedBy = userInfo?.real_name || userInfo?.name || 'Unknown';
+
+    // Extract form values
+    const referralSelection = values.referral_select_block?.referral_select?.selected_option?.value;
+
+    if (!referralSelection || referralSelection === 'none') {
+      return NextResponse.json({
+        response_action: 'errors',
+        errors: {
+          referral_select_block: 'Please select a valid referral',
+        },
+      });
+    }
+
+    // Parse referral selection (format: "REF-XXXX|ClientName")
+    const [referralId, clientName] = referralSelection.split('|');
+
+    const taxOwed = values.tax_owed_block?.tax_owed?.selected_option?.value || 'no';
+    const taxAmount = values.tax_amount_block?.tax_amount?.value || '';
+    const serviceSummary = values.service_summary_block?.service_summary?.value || '';
+    const completedDate = new Date().toISOString().slice(0, 10);
+
+    // Post completion notification to #accountant-admin
+    const adminChannel = process.env.CHANNEL_ACCOUNTING_ADMIN;
+    if (!adminChannel) {
+      throw new Error('CHANNEL_ACCOUNTING_ADMIN not configured');
+    }
+
+    await postCompletionNotification(
+      adminChannel,
+      referralId,
+      clientName,
+      serviceSummary,
+      completedBy
+    );
+
+    // Send to Zapier → Excel (non-blocking)
+    try {
+      await sendCompletionToZapier({
+        referralId,
+        clientName,
+        taxOwed,
+        taxAmount,
+        serviceSummary,
+        completedBy,
+        completedDate,
+      });
+    } catch (zapierError) {
+      console.error('Zapier completion webhook failed (non-critical):', zapierError);
+    }
+
+    return NextResponse.json({});
+  } catch (error: any) {
+    console.error('Completion submission error:', error);
+    return NextResponse.json({
+      response_action: 'errors',
+      errors: {
+        referral_select_block: `Submission failed: ${error?.message || 'Unknown error'}. Please try again.`,
+      },
+    });
+  }
 }

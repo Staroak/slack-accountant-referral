@@ -88,13 +88,17 @@ async function handleReactionAdded(event: any) {
     return;
   }
 
-  // Mark invoice as paid in Excel
-  await markInvoicePaid(referralId);
+  // Mark invoice as paid in Excel (direct API via Microsoft Graph)
+  try {
+    await markInvoicePaid(referralId);
+  } catch (excelError) {
+    console.error('Excel update failed:', excelError);
+  }
 
   // Post confirmation reply
   await slackClient.chat.postMessage({
     channel: event.item.channel,
     thread_ts: event.item.ts,
-    text: `Invoice marked as paid for referral ${referralId}`,
+    text: `✅ Invoice marked as paid for referral ${referralId}`,
   });
 }

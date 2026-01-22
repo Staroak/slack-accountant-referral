@@ -173,6 +173,107 @@ export async function markInvoicePaid(referralId: string): Promise<void> {
   await updateReferralStatus(referralId, 'paid', { invoiceStatus: 'paid' });
 }
 
+// Get calendar availability for the next 7 days
+export interface TimeSlot {
+  date: string;      // YYYY-MM-DD
+  startTime: string; // HH:mm
+  endTime: string;   // HH:mm
+  display: string;   // Human readable
+}
+
+export async function getCalendarAvailability(days: number = 7): Promise<TimeSlot[]> {
+  const client = getGraphClient();
+  const calendarEmail = process.env.JARROD_CALENDAR_EMAIL;
+
+  // Get date range
+  const startDate = new Date();
+  startDate.setHours(0, 0, 0, 0);
+  const endDate = new Date(startDate);
+  endDate.setDate(endDate.getDate() + days);
+
+  // Fetch calendar events for the date range
+  const events = await client
+    .api(`/users/${calendarEmail}/calendarView`)
+    .query({
+      startDateTime: startDate.toISOString(),
+      endDateTime: endDate.toISOString(),
+      $select: 'start,end,subject',
+      $orderby: 'start/dateTime',
+    })
+    .get();
+
+  // Define working hours (9 AM - 5 PM, 1 hour slots)
+  const workingHours = [
+    { start: '09:00', end: '10:00' },
+    { start: '10:00', end: '11:00' },
+    { start: '11:00', end: '12:00' },
+    { start: '13:00', end: '14:00' }, // Skip lunch 12-1
+    { start: '14:00', end: '15:00' },
+    { start: '15:00', end: '16:00' },
+    { start: '16:00', end: '17:00' },
+  ];
+
+  const busyTimes: Set<string> = new Set();
+
+  // Mark busy slots
+  for (const event of events.value || []) {
+    const start = new Date(event.start.dateTime + 'Z');
+    const end = new Date(event.end.dateTime + 'Z');
+
+    // Convert to Pacific time for comparison
+    const startLocal = new Date(start.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+    const endLocal = new Date(end.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+
+    const dateKey = startLocal.toISOString().slice(0, 10);
+
+    // Mark each overlapping hour slot as busy
+    for (const slot of workingHours) {
+      const slotStart = new Date(`${dateKey}T${slot.start}:00`);
+      const slotEnd = new Date(`${dateKey}T${slot.end}:00`);
+
+      if (startLocal < slotEnd && endLocal > slotStart) {
+        busyTimes.add(`${dateKey}|${slot.start}`);
+      }
+    }
+  }
+
+  // Generate available slots
+  const availableSlots: TimeSlot[] = [];
+
+  for (let d = 0; d < days; d++) {
+    const date = new Date(startDate);
+    date.setDate(date.getDate() + d);
+
+    // Skip weekends
+    if (date.getDay() === 0 || date.getDay() === 6) continue;
+
+    const dateKey = date.toISOString().slice(0, 10);
+    const dayName = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+    for (const slot of workingHours) {
+      const slotKey = `${dateKey}|${slot.start}`;
+
+      // Skip past times for today
+      if (d === 0) {
+        const now = new Date();
+        const slotTime = new Date(`${dateKey}T${slot.start}:00`);
+        if (slotTime <= now) continue;
+      }
+
+      if (!busyTimes.has(slotKey)) {
+        availableSlots.push({
+          date: dateKey,
+          startTime: slot.start,
+          endTime: slot.end,
+          display: `${dayName} ${slot.start} - ${slot.end}`,
+        });
+      }
+    }
+  }
+
+  return availableSlots;
+}
+
 // Send referral data to Power Automate webhook (fast, fire-and-forget)
 export async function sendToExcelWebhook(rowData: ExcelReferralRow): Promise<void> {
   const webhookUrl = process.env.POWERAUTOMATE_WEBHOOK_URL;

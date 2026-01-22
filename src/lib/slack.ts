@@ -62,8 +62,21 @@ export async function postNewReferralButton(channel: string) {
   });
 }
 
-// Open the referral form modal
-export async function openReferralModal(triggerId: string) {
+// Open the referral form modal with calendar availability
+export async function openReferralModal(triggerId: string, availableSlots?: { date: string; startTime: string; endTime: string; display: string }[]) {
+  // Build appointment options from available slots
+  const appointmentOptions = availableSlots && availableSlots.length > 0
+    ? availableSlots.slice(0, 100).map(slot => ({
+        text: { type: 'plain_text' as const, text: slot.display },
+        value: `${slot.date}|${slot.startTime}`,
+      }))
+    : [
+        {
+          text: { type: 'plain_text' as const, text: 'No available slots' },
+          value: 'none',
+        },
+      ];
+
   return slackClient.views.open({
     trigger_id: triggerId,
     view: {
@@ -169,36 +182,27 @@ export async function openReferralModal(triggerId: string) {
           },
         },
         {
-          type: 'input',
-          block_id: 'appointment_date_block',
-          element: {
-            type: 'datepicker',
-            action_id: 'appointment_date',
-            placeholder: {
-              type: 'plain_text',
-              text: 'Select a date',
-            },
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*Jared\'s Availability*\nSelect an available appointment slot:',
           },
-          label: {
-            type: 'plain_text',
-            text: 'Preferred Appointment Date',
-          },
-          optional: true,
         },
         {
           type: 'input',
-          block_id: 'appointment_time_block',
+          block_id: 'appointment_slot_block',
           element: {
-            type: 'timepicker',
-            action_id: 'appointment_time',
+            type: 'static_select',
+            action_id: 'appointment_slot',
             placeholder: {
               type: 'plain_text',
-              text: 'Select time',
+              text: 'Select available time slot',
             },
+            options: appointmentOptions,
           },
           label: {
             type: 'plain_text',
-            text: 'Preferred Appointment Time',
+            text: 'Appointment Slot',
           },
           optional: true,
         },
@@ -323,6 +327,186 @@ export async function publishAppHome(userId: string) {
   });
 }
 
+// Post "Complete Service" button to #accounting-services-completed
+export async function postCompleteServiceButton(channel: string) {
+  return slackClient.chat.postMessage({
+    channel,
+    text: 'Click to mark a service as complete',
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*Ready to mark a service as complete?*\nClick the button below to fill out the completion form.',
+        },
+      },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: 'Complete Service',
+              emoji: true,
+            },
+            style: 'primary',
+            action_id: 'open_completion_modal',
+          },
+        ],
+      },
+    ],
+  });
+}
+
+// Open the service completion modal with referral dropdown
+export async function openCompletionModal(triggerId: string, referrals?: { id: string; clientName: string; serviceType: string }[]) {
+  // Build referral options for dropdown
+  const referralOptions = referrals && referrals.length > 0
+    ? referrals.map(ref => ({
+        text: { type: 'plain_text' as const, text: `${ref.id} - ${ref.clientName}` },
+        value: `${ref.id}|${ref.clientName}`,
+      }))
+    : [
+        {
+          text: { type: 'plain_text' as const, text: 'No pending referrals' },
+          value: 'none',
+        },
+      ];
+
+  return slackClient.views.open({
+    trigger_id: triggerId,
+    view: {
+      type: 'modal',
+      callback_id: 'completion_form_submit',
+      title: {
+        type: 'plain_text',
+        text: 'Complete Service',
+      },
+      submit: {
+        type: 'plain_text',
+        text: 'Submit',
+      },
+      close: {
+        type: 'plain_text',
+        text: 'Cancel',
+      },
+      blocks: [
+        {
+          type: 'input',
+          block_id: 'referral_select_block',
+          element: {
+            type: 'static_select',
+            action_id: 'referral_select',
+            placeholder: {
+              type: 'plain_text',
+              text: 'Select a referral',
+            },
+            options: referralOptions,
+          },
+          label: {
+            type: 'plain_text',
+            text: 'Select Referral',
+          },
+        },
+        {
+          type: 'input',
+          block_id: 'tax_owed_block',
+          element: {
+            type: 'radio_buttons',
+            action_id: 'tax_owed',
+            options: [
+              {
+                text: { type: 'plain_text', text: 'Yes' },
+                value: 'yes',
+              },
+              {
+                text: { type: 'plain_text', text: 'No' },
+                value: 'no',
+              },
+            ],
+          },
+          label: {
+            type: 'plain_text',
+            text: 'Tax $ Owed?',
+          },
+        },
+        {
+          type: 'input',
+          block_id: 'tax_amount_block',
+          element: {
+            type: 'plain_text_input',
+            action_id: 'tax_amount',
+            placeholder: {
+              type: 'plain_text',
+              text: '$0.00',
+            },
+          },
+          label: {
+            type: 'plain_text',
+            text: 'Tax Amount (if applicable)',
+          },
+          optional: true,
+        },
+        {
+          type: 'input',
+          block_id: 'service_summary_block',
+          element: {
+            type: 'plain_text_input',
+            action_id: 'service_summary',
+            multiline: true,
+            placeholder: {
+              type: 'plain_text',
+              text: 'Brief summary of work completed...',
+            },
+          },
+          label: {
+            type: 'plain_text',
+            text: 'Service Summary',
+          },
+        },
+      ],
+    },
+  });
+}
+
+// Fetch recent referrals from the records channel for dropdown selection
+export async function fetchRecentReferrals(limit: number = 50): Promise<{ id: string; clientName: string; serviceType: string }[]> {
+  const recordsChannel = process.env.CHANNEL_ACCOUNTANT_REFERRAL;
+  if (!recordsChannel) {
+    return [];
+  }
+
+  try {
+    const result = await slackClient.conversations.history({
+      channel: recordsChannel,
+      limit,
+    });
+
+    const referrals: { id: string; clientName: string; serviceType: string }[] = [];
+
+    for (const message of result.messages || []) {
+      const metadata = message.metadata as any;
+      if (metadata?.event_type === 'referral_record') {
+        const payload = metadata.event_payload;
+        // Only include pending/scheduled referrals (not completed/paid)
+        if (payload?.referral_id && payload?.client_name && payload?.status !== 'completed' && payload?.status !== 'paid') {
+          referrals.push({
+            id: payload.referral_id,
+            clientName: payload.client_name,
+            serviceType: payload.service_type || 'Unknown',
+          });
+        }
+      }
+    }
+
+    return referrals;
+  } catch (error) {
+    console.error('Failed to fetch referrals:', error);
+    return [];
+  }
+}
+
 // Post a referral record to a channel (serves as the data store)
 export async function postReferralRecord(
   channel: string,
@@ -396,6 +580,7 @@ export async function postReferralRecord(
       event_payload: {
         referral_id: referralData.id,
         client_name: referralData.clientName,
+        service_type: referralData.serviceType,
         status: referralData.status,
       },
     },
