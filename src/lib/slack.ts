@@ -359,21 +359,8 @@ export async function postCompleteServiceButton(channel: string) {
   });
 }
 
-// Open the service completion modal with referral dropdown
-export async function openCompletionModal(triggerId: string, referrals?: { id: string; clientName: string; serviceType: string }[]) {
-  // Build referral options for dropdown
-  const referralOptions = referrals && referrals.length > 0
-    ? referrals.map(ref => ({
-        text: { type: 'plain_text' as const, text: `${ref.id} - ${ref.clientName}` },
-        value: `${ref.id}|${ref.clientName}`,
-      }))
-    : [
-        {
-          text: { type: 'plain_text' as const, text: 'No pending referrals' },
-          value: 'none',
-        },
-      ];
-
+// Open the service completion modal with simple text inputs
+export async function openCompletionModal(triggerId: string) {
   return slackClient.views.open({
     trigger_id: triggerId,
     view: {
@@ -394,19 +381,34 @@ export async function openCompletionModal(triggerId: string, referrals?: { id: s
       blocks: [
         {
           type: 'input',
-          block_id: 'referral_select_block',
+          block_id: 'referral_id_block',
           element: {
-            type: 'static_select',
-            action_id: 'referral_select',
+            type: 'plain_text_input',
+            action_id: 'referral_id',
             placeholder: {
               type: 'plain_text',
-              text: 'Select a referral',
+              text: 'REF-XXXXXXXX',
             },
-            options: referralOptions,
           },
           label: {
             type: 'plain_text',
-            text: 'Select Referral',
+            text: 'Referral # (from #accountant-referral)',
+          },
+        },
+        {
+          type: 'input',
+          block_id: 'client_name_block',
+          element: {
+            type: 'plain_text_input',
+            action_id: 'client_name',
+            placeholder: {
+              type: 'plain_text',
+              text: 'Client name',
+            },
+          },
+          label: {
+            type: 'plain_text',
+            text: 'Client Name',
           },
         },
         {

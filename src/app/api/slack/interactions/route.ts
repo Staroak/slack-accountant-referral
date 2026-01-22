@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifySlackRequest, openReferralModal, openCompletionModal, getSlackUserInfo, postCompletionNotification, postReferralRecord, fetchRecentReferrals } from '@/lib/slack';
+import { verifySlackRequest, openReferralModal, openCompletionModal, getSlackUserInfo, postCompletionNotification, postReferralRecord } from '@/lib/slack';
 import { createCalendarEvent, getCalendarAvailability } from '@/lib/graph';
 import { sendToZapier, sendCompletionToZapier } from '@/lib/zapier';
 import type { ReferralFormData } from '@/types';
@@ -59,14 +59,7 @@ async function handleBlockActions(payload: any) {
       return NextResponse.json({});
 
     case 'open_completion_modal':
-      // Fetch recent referrals for the dropdown
-      let referrals: { id: string; clientName: string; serviceType: string }[] = [];
-      try {
-        referrals = await fetchRecentReferrals();
-      } catch (error) {
-        console.error('Failed to fetch referrals:', error);
-      }
-      await openCompletionModal(payload.trigger_id, referrals);
+      await openCompletionModal(payload.trigger_id);
       return NextResponse.json({});
 
     default:
@@ -218,19 +211,26 @@ async function handleCompletionSubmission(payload: any) {
     const completedBy = userInfo?.real_name || userInfo?.name || 'Unknown';
 
     // Extract form values
-    const referralSelection = values.referral_select_block?.referral_select?.selected_option?.value;
+    const referralId = values.referral_id_block?.referral_id?.value?.trim();
+    const clientName = values.client_name_block?.client_name?.value?.trim();
 
-    if (!referralSelection || referralSelection === 'none') {
+    if (!referralId) {
       return NextResponse.json({
         response_action: 'errors',
         errors: {
-          referral_select_block: 'Please select a valid referral',
+          referral_id_block: 'Please enter the referral number',
         },
       });
     }
 
-    // Parse referral selection (format: "REF-XXXX|ClientName")
-    const [referralId, clientName] = referralSelection.split('|');
+    if (!clientName) {
+      return NextResponse.json({
+        response_action: 'errors',
+        errors: {
+          client_name_block: 'Please enter the client name',
+        },
+      });
+    }
 
     const taxOwed = values.tax_owed_block?.tax_owed?.selected_option?.value || 'no';
     const taxAmount = values.tax_amount_block?.tax_amount?.value || '';
