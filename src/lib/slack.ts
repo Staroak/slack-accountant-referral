@@ -500,11 +500,19 @@ export async function fetchRecentReferrals(limit: number = 50): Promise<{ id: st
         continue;
       }
 
-      // Fallback: parse from message text (old format)
-      // Look for patterns like "REF-XXXXXXXX" and "Client: Name"
+      // Fallback: parse from message text or blocks
       const text = message.text || '';
+
+      // Try to find REF-XXXXXXXX pattern
       const refMatch = text.match(/\b(REF-[A-Z0-9]{8})\b/);
-      const clientMatch = text.match(/\*Client:\*\s*([^\n*]+)/i) || text.match(/Client:\s*([^\n]+)/i);
+
+      // Try multiple patterns for client name
+      const clientMatch =
+        text.match(/\*Client Name:\*\s*\n?([^\n*]+)/i) ||
+        text.match(/\*Client:\*\s*\n?([^\n*]+)/i) ||
+        text.match(/Client Name:\s*([^\n]+)/i) ||
+        text.match(/Client:\s*([^\n]+)/i) ||
+        text.match(/New Referral:\s*([^\n]+)/i);
 
       if (refMatch && clientMatch) {
         referrals.push({
